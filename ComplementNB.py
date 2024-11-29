@@ -4,7 +4,7 @@ import math
 from tfidf import TF_IDF
 
 class ComplementNB:
-    def __init__(self, stopwords, features_limit=10000):
+    def __init__(self, stopwords, features_limit=100000):
         self.stopwords = stopwords
         self.features_limit = features_limit
         self.sentiment = {0: 'negative', 1: 'neutral', 2: 'positive'}
@@ -24,28 +24,55 @@ class ComplementNB:
                 if word not in self.features and word not in self.stopwords:
                     self.features.append(word)
 
-    def train_complement_naive_bayes(self, train_x, train_y):
-        self.word_counts = {key: {word: 1 for word in self.features} for key in self.word_counts}
+    def train_complement_naive_bayes(self, train_x, train_y, fragments=10):
+        fragment_size = len(train_x) // fragments
+        accumulated_counts = {
+            'positive': {word: 1 for word in self.features},
+            'neutral': {word: 1 for word in self.features},
+            'negative': {word: 1 for word in self.features}
+        }
+        accumulated_tot_counts = [1, 1, 1]
 
-        for i in range(len(train_x)):
-            sentence = str(train_x.iloc[i])
-            if not sentence or sentence.strip() == "":
-                continue
-        
-        for i in range(len(train_x)):
-            sentiment = train_y.iloc[i]
-            if sentiment == 'positive':
-                self.tot_counts[2] += 1
-            elif sentiment == 'neutral':
-                self.tot_counts[1] += 1
-            elif sentiment == 'negative':
-                self.tot_counts[0] += 1
+        for f in range(fragments):
+            start = f * fragment_size
+            end = (f + 1) * fragment_size if f < fragments - 1 else len(train_x)
+            
+            fragment_x = train_x[start:end]
+            fragment_y = train_y[start:end]
 
-            for word in train_x.iloc[i].split():
-                if word in self.features:
-                    self.word_counts[sentiment][word] += 1
+            fragment_word_counts = {
+                'positive': {word: 1 for word in self.features},
+                'neutral': {word: 1 for word in self.features},
+                'negative': {word: 1 for word in self.features}
+            }
+            fragment_tot_counts = [1, 1, 1]
 
-        total_count = len(train_x) + 3
+            for i in range(len(fragment_x)):
+                sentiment = fragment_y.iloc[i]
+                if sentiment == 'positive':
+                    fragment_tot_counts[2] += 1
+                elif sentiment == 'neutral':
+                    fragment_tot_counts[1] += 1
+                elif sentiment == 'negative':
+                    fragment_tot_counts[0] += 1
+
+                for word in fragment_x.iloc[i].split():
+                    if word in self.features:
+                        fragment_word_counts[sentiment][word] += 1
+
+            for sentiment_label in ['positive', 'neutral', 'negative']:
+                for word in self.features:
+                    accumulated_counts[sentiment_label][word] += fragment_word_counts[sentiment_label][word]
+            for c in range(3):
+                accumulated_tot_counts[c] += fragment_tot_counts[c]
+
+        for sentiment_label in ['positive', 'neutral', 'negative']:
+            for word in self.features:
+                self.word_counts[sentiment_label][word] = accumulated_counts[sentiment_label][word] / fragments
+        for c in range(3):
+            self.tot_counts[c] = accumulated_tot_counts[c] / fragments
+
+        total_count = len(train_x) + 3 
         for i in range(3):
             self.probs[i] = self.tot_counts[i] / total_count
 
@@ -124,7 +151,12 @@ class ComplementNB:
         print(f"Overall Accuracy: {accuracy:.4f}")
 
     def run(self, train_data, test_data):
-        self.get_features(train_data['text'].to_numpy())
+        positive = TF_IDF(train_data[train_data['sentiment'] == 'positive']['text'], self.features_limit)
+        neutral = TF_IDF(train_data[train_data['sentiment'] == 'neutral']['text'], self.features_limit)
+        negative = TF_IDF(train_data[train_data['sentiment'] == 'negative']['text'], self.features_limit)
+        self.get_features(positive)
+        self.get_features(neutral)
+        self.get_features(negative)
         self.train_complement_naive_bayes(train_data['text'], train_data['sentiment'])
         
         self.evaluate(test_data['text'], test_data['sentiment'])
@@ -132,14 +164,29 @@ class ComplementNB:
 def main():
     stopwords = ['i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'ourselves', 'you', "you're", "you've", "you'll", "you'd", 'your', 'yours', 'yourself', 'yourselves', 'he', 'him', 'his', 'himself', 'she', "she's", 'her', 'hers', 'herself', 'it', "it's", 'its', 'itself', 'they', 'them', 'their', 'theirs', 'themselves', 'what', 'which', 'who', 'whom', 'this', 'that', "that'll", 'these', 'those', 'am', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'having', 'do', 'does', 'did', 'doing', 'a', 'an', 'the', 'and', 'but', 'if', 'or', 'because', 'as', 'until', 'while', 'of', 'at', 'by', 'for', 'with', 'about', 'against', 'between', 'into', 'through', 'during', 'before', 'after', 'above', 'below', 'to', 'from', 'up', 'down', 'in', 'out', 'on', 'off', 'over', 'under', 'again', 'further', 'then', 'once', 'here', 'there', 'when', 'where', 'why', 'how', 'all', 'any', 'both', 'each', 'few', 'more', 'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own', 'same', 'so', 'than', 'too', 'very', 's', 't', 'can', 'will', 'just', 'don', "don't", 'should', "should've", 'now', 'd', 'll', 'm', 'o', 're', 've', 'y', 'ain', 'aren', "aren't", 'couldn', "couldn't", 'didn', "didn't", 'doesn', "doesn't", 'hadn', "hadn't", 'hasn', "hasn't", 'haven', "haven't", 'isn', "isn't", 'ma', 'mightn', "mightn't", 'mustn', "mustn't", 'needn', "needn't", 'shan', "shan't", 'shouldn', "shouldn't", 'wasn', "wasn't", 'weren', "weren't", 'won', "won't", 'wouldn', "wouldn't"]
     
-    df_train1 = pd.read_csv("train.csv", encoding='ISO-8859-1')[["text", "sentiment"]]
+    # df1 = pd.read_csv("datasets/dataset1.csv", encoding='ISO-8859-1')
+    # df1 = df1[["text", "sentiment"]]
 
-    df_train_combined = pd.concat([df_train1], ignore_index=True)
+    df2 = pd.read_csv("datasets/dataset2.csv", encoding='ISO-8859-1')
+    df2 = df2[["text", "sentiment"]]
+
+    df3 = pd.read_csv("datasets/dataset3.csv", encoding='ISO-8859-1')
+    df3 = df3[["text", "sentiment"]]
+
+    df4 = pd.read_csv("datasets/dataset4.csv", encoding='ISO-8859-1')
+    df4 = df4[["text", "sentiment"]]
+
+    df5 = pd.read_csv("datasets/dataset5.csv", encoding='ISO-8859-1')
+    df5 = df5[["text", "sentiment"]]
+
+    df_train_combined = pd.concat([df2, df3, df4, df5], ignore_index=True)
     df_train_combined = df_train_combined.sample(frac=1, random_state=42).reset_index(drop=True)
 
     df_test = pd.read_csv("test.csv", encoding='ISO-8859-1')[["text", "sentiment"]]
 
     df_train_combined['text'] = df_train_combined['text'].fillna("").astype(str)
+    df_train_combined['sentiment'] = df_train_combined['sentiment'].str.lower()
+    df_train_combined = df_train_combined.dropna(subset=['sentiment'])
     df_test = df_test.dropna(subset=['sentiment'])
     df_test['text'] = df_test['text'].fillna("").astype(str)
     
