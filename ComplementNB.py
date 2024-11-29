@@ -1,7 +1,8 @@
 import numpy as np
 import pandas as pd
 import math
-import pickle 
+import pickle
+import matplotlib.pyplot as plt
 from tfidf import TF_IDF
 
 class ComplementNB:
@@ -10,11 +11,7 @@ class ComplementNB:
         self.features_limit = features_limit
         self.sentiment = {0: 'negative', 1: 'neutral', 2: 'positive'}
         self.features = []
-        self.word_counts = {
-            'positive': {},
-            'neutral': {},
-            'negative': {}
-        }
+        self.word_counts = {'positive': {},'neutral': {},'negative': {}}
         self.tot_counts = [1, 1, 1]
         self.probs = [1, 1, 1] 
 
@@ -85,44 +82,47 @@ class ComplementNB:
         return predicted_class
 
     def evaluate(self, test_x, test_y):
+        metrics = {'precision': [], 'recall': [], 'f1_score': []}
         true_positives = [0, 0, 0]
         false_positives = [0, 0, 0]
         false_negatives = [0, 0, 0]
-        true_negatives = [0, 0, 0]
+        accuracy = 0
 
         for i, sentence in enumerate(test_x):
             predicted_class = self.predict(sentence)
-            actual_class = {v: k for k, v in self.sentiment.items()}[test_y.iloc[i]]
+            actual_class = {v: k for k, v in self.sentiment.items()}[test_y.iloc[i]]  # Convert string to integer index
+            
+            if predicted_class == actual_class:
+                true_positives[predicted_class] += 1
+                accuracy += 1
+            else:
+                false_positives[predicted_class] += 1
+                false_negatives[actual_class] += 1
 
-            for c in range(3):
-                if c == predicted_class and c == actual_class:
-                    true_positives[c] += 1
-                elif c == predicted_class and c != actual_class:
-                    false_positives[c] += 1
-                elif c != predicted_class and c == actual_class:
-                    false_negatives[c] += 1
-                else:
-                    true_negatives[c] += 1
-
-        precision = [0, 0, 0]
-        recall = [0, 0, 0]
-        f1_score = [0, 0, 0]
-        accuracy = sum(true_positives) / len(test_y)
+        accuracy /= len(test_y)
 
         for c in range(3):
-            if true_positives[c] + false_positives[c] > 0:
-                precision[c] = true_positives[c] / (true_positives[c] + false_positives[c])
-            if true_positives[c] + false_negatives[c] > 0:
-                recall[c] = true_positives[c] / (true_positives[c] + false_negatives[c])
-            if precision[c] + recall[c] > 0:
-                f1_score[c] = 2 * (precision[c] * recall[c]) / (precision[c] + recall[c])
+            precision = true_positives[c] / (true_positives[c] + false_positives[c]) if true_positives[c] + false_positives[c] > 0 else 0
+            recall = true_positives[c] / (true_positives[c] + false_negatives[c]) if true_positives[c] + false_negatives[c] > 0 else 0
+            f1 = 2 * precision * recall / (precision + recall) if precision + recall > 0 else 0
+            metrics['precision'].append(precision)
+            metrics['recall'].append(recall)
+            metrics['f1_score'].append(f1)
 
-        for c in range(3):
-            print(f"Class {self.sentiment[c]}:")
-            print(f"  Precision: {precision[c]:.4f}")
-            print(f"  Recall: {recall[c]:.4f}")
-            print(f"  F1-Score: {f1_score[c]:.4f}")
-        print(f"Overall Accuracy: {accuracy:.4f}")
+        metrics_df = pd.DataFrame(metrics, index=['negative', 'neutral', 'positive'])
+        metrics_df['accuracy'] = [accuracy] * 3 
+
+        with open("cnb_evaluation_metrics.pkl", 'wb') as f:
+            pickle.dump(metrics_df, f)
+
+        fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+        metrics_df[['precision', 'recall', 'f1_score']].plot.bar(ax=ax)
+        ax.set_title("Evaluation Metrics by Class")
+        ax.set_xlabel("Class")
+        ax.set_ylabel("Score")
+        plt.tight_layout()
+        plt.savefig("cnb_evaluation_metrics.png")
+        plt.close()
 
     def save_model(self, filename):
         with open(filename, 'wb') as f:
@@ -132,6 +132,18 @@ class ComplementNB:
     def load_model(filename):
         with open(filename, 'rb') as f:
             return pickle.load(f)
+
+    @staticmethod
+    def load_metrics(filename):
+        with open(filename, 'rb') as f:
+            return pickle.load(f)
+
+    @staticmethod
+    def plot_metrics(filename):
+        metrics_df = ComplementNB.load_metrics(filename)
+        metrics_df.plot.bar()
+        plt.title("Evaluation Metrics")
+        plt.show()
 
     def run(self, train_data, test_data):
         self.get_features(train_data['text'].to_numpy())
